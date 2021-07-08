@@ -1,8 +1,16 @@
 [package]
-name = "hello-rust"
+name = "file-system"
 version = "0.1.0"
 edition = "2018"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
+# The core APIs, including the Serialize and Deserialize traits. Always
+# required when using Serde. The "derive" feature is only required when
+# using #[derive(Serialize, Deserialize)] to make Serde work with structs
+# and enums defined in your crate.
+serde = { version = "1.0", features = ["derive"] }
+bincode = "1.3.3"
+ansi_rgb = "0.2.0"
+rand = "0.8.4"

@@ -1,1 +1,4 @@
 /target
+file-sys.vd
+/.vscode
+Cargo.lock
