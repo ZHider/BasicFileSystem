@@ -44,7 +44,7 @@ fn main() {
             }
             'Y' | 'y' => {
                 pinfo();
-                println!("\nTrying to load vd file from disk...\n");
+                println!("Trying to load vd file from disk...\n");
                 let data = fs::read("./file-sys.vd").unwrap();
 
                 bincode::deserialize(data.as_slice()).unwrap()
@@ -71,13 +71,14 @@ fn main() {
         let command_line = String::from(buf_str.trim());
 
         // 分支-test
-        if let Some(command_line) = command_line.strip_prefix("test") {
-            let command_line = command_line.trim().to_string();
-            if command_line.starts_with("create") {
+        if let Some(cl) = command_line.strip_prefix("test ") {
+            // 分支-create
+            if let Some(cl) = cl.strip_prefix("create") {
                 let data = format!("File has been created at {:?} .", SystemTime::now());
-                let name = if command_line.len() > 6 {
+                let cl_trim = cl.trim();
+                let name = if cl_trim.len() > 0 {
                     // 输入了名字
-                    command_line.strip_prefix("create").unwrap().trim().to_string()
+                    cl_trim.to_string()
                 } else {
                     // 没有输入名字
                     format!("test-{}", (rand::random::<f32>() * 100_f32) as usize)
@@ -129,6 +130,8 @@ fn main() {
             } else if let Some(command_line) = command_line.strip_prefix("rm ") {
                 let name = command_line.trim();
                 virtual_disk.delete_file_by_name(name).expect("[ERROR]\tDELETE FILE FAILED!");
+            } else {
+                println!("Unknown Command.");
             }
     }
 
@@ -302,18 +305,15 @@ impl DiskManager {
 
     /// 返回一个状态是NotUsed的簇块号
     fn find_next_empty_fat(&self) -> Option<usize> {
-        let mut res: usize = 0;
+        let mut res = None;
         for i in 0..(self.disk.fat.len() - 1) {
             if let FatItem::NotUsed = self.disk.fat[i] {
-                res = i;
+                res = Some(i);
                 break;
             }
         }
-        if res == 0 {
-            None
-        } else {
-            Some(res)
-        }
+        
+        res
     }
 
     /// 输入需要分配的簇数量，在FAT表上标记为已用（分配新空间），返回被分配的簇号数组。
@@ -757,7 +757,7 @@ impl fmt::Display for Directory {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         // 仅将 self 的第一个元素写入到给定的输出流 `f`。返回 `fmt:Result`，此
         // 结果表明操作成功或失败。注意 `write!` 的用法和 `println!` 很相似。
-        writeln!(f, "Directroy {} Files:", self.name)?;
+        writeln!(f, "Directroy '{}' Files:", self.name)?;
         for file in &self.files {
             writeln!(
                 f,
