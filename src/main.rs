@@ -76,63 +76,65 @@ fn main() {
             if let Some(cl) = cl.strip_prefix("create") {
                 let data = format!("File has been created at {:?} .", SystemTime::now());
                 let cl_trim = cl.trim();
-                let name = if cl_trim.len() > 0 {
-                    // 输入了名字
-                    cl_trim.to_string()
-                } else {
+                let name = if cl_trim.is_empty() {
                     // 没有输入名字
                     format!("test-{}", (rand::random::<f32>() * 100_f32) as usize)
+                } else {
+                    // 输入了名字
+                    cl_trim.to_string()
                 };
                 virtual_disk.create_file_with_data(name.as_str(), data.as_bytes());
             }
         } else if command_line.starts_with("help") {
-                // 显示菜单
-                println!("{}", UI_HELP);
-            } else if command_line.starts_with("exit") {
-                // 跳出循环，结束程序
-                pinfo();
-                println!("Exiting system...\n");
-                break;
-            } else if command_line.starts_with("save") {
-                // 保存系统
-                pinfo();
-                println!("Saving...");
-                let data = bincode::serialize(&virtual_disk).unwrap();
-                fs::write(SAVE_FILE_NAME, data.as_slice()).unwrap();
-                pinfo();
-                println!("The virtual disk system has been saved.\n");
-            } else if command_line.starts_with("ls") {
-                // 列出目录文件
-                println!("{}", virtual_disk.cur_dir);
-            } else if let Some(name) = command_line.strip_prefix("cd ") {
-                // 切换到当前目录的某个文件夹
-                pinfo();
-                println!("Set Location to: {} ...", name);
-                virtual_disk.set_current_directory(name);
-            } else if let Some(command_line) = command_line.strip_prefix("cat ") {
-                // 显示文件内容
-                let name = command_line.trim();
-                let data = virtual_disk.read_file_by_name(name);
-                println!("{}", str::from_utf8(data.as_slice()).unwrap());
-            } else if let Some(command_line) = command_line.strip_prefix("mkdir ") {
-                // 创建新文件夹
-                let name = command_line.trim();
-                virtual_disk.new_directory_to_disk(name).unwrap();
-            } else if command_line.starts_with("diskinfo") {
-                // 返回磁盘信息
-                let (disk_size, num_used, num_not_used) = virtual_disk.get_disk_info();
-                println!(
-                    "Disk sized {} Bytes, {} Bytes used, {} Bytes available.",
-                    disk_size,
-                    num_used * BLOCK_SIZE,
-                    num_not_used * BLOCK_SIZE
-                );
-            } else if let Some(command_line) = command_line.strip_prefix("rm ") {
-                let name = command_line.trim();
-                virtual_disk.delete_file_by_name(name).expect("[ERROR]\tDELETE FILE FAILED!");
-            } else {
-                println!("Unknown Command.");
-            }
+            // 显示菜单
+            println!("{}", UI_HELP);
+        } else if command_line.starts_with("exit") {
+            // 跳出循环，结束程序
+            pinfo();
+            println!("Exiting system...\n");
+            break;
+        } else if command_line.starts_with("save") {
+            // 保存系统
+            pinfo();
+            println!("Saving...");
+            let data = bincode::serialize(&virtual_disk).unwrap();
+            fs::write(SAVE_FILE_NAME, data.as_slice()).unwrap();
+            pinfo();
+            println!("The virtual disk system has been saved.\n");
+        } else if command_line.starts_with("ls") {
+            // 列出目录文件
+            println!("{}", virtual_disk.cur_dir);
+        } else if let Some(name) = command_line.strip_prefix("cd ") {
+            // 切换到当前目录的某个文件夹
+            pinfo();
+            println!("Set Location to: {} ...", name);
+            virtual_disk.set_current_directory(name);
+        } else if let Some(command_line) = command_line.strip_prefix("cat ") {
+            // 显示文件内容
+            let name = command_line.trim();
+            let data = virtual_disk.read_file_by_name(name);
+            println!("{}", str::from_utf8(data.as_slice()).unwrap());
+        } else if let Some(command_line) = command_line.strip_prefix("mkdir ") {
+            // 创建新文件夹
+            let name = command_line.trim();
+            virtual_disk.new_directory_to_disk(name).unwrap();
+        } else if command_line.starts_with("diskinfo") {
+            // 返回磁盘信息
+            let (disk_size, num_used, num_not_used) = virtual_disk.get_disk_info();
+            println!(
+                "Disk sized {} Bytes, {} Bytes used, {} Bytes available.",
+                disk_size,
+                num_used * BLOCK_SIZE,
+                num_not_used * BLOCK_SIZE
+            );
+        } else if let Some(command_line) = command_line.strip_prefix("rm ") {
+            let name = command_line.trim();
+            virtual_disk
+                .delete_file_by_name(name)
+                .expect("[ERROR]\tDELETE FILE FAILED!");
+        } else {
+            println!("Unknown Command.");
+        }
     }
 
     // virtual_disk.new_directory_to_disk("test").unwrap();
@@ -280,7 +282,6 @@ impl Disk {
 struct DiskManager {
     disk: Disk,
     cur_dir: Directory,
-    cur_dir_first_cluster: usize,
 }
 impl DiskManager {
     /// 初始化新磁盘，返回DiskManager对象
@@ -299,7 +300,6 @@ impl DiskManager {
         DiskManager {
             disk,
             cur_dir: root_dir,
-            cur_dir_first_cluster: 0,
         }
     }
 
@@ -312,7 +312,7 @@ impl DiskManager {
                 break;
             }
         }
-        
+
         res
     }
 
@@ -467,7 +467,7 @@ impl DiskManager {
         new_directory.files.push(Fcb {
             name: String::from(".."),
             file_type: FileType::Directory,
-            first_cluster: self.cur_dir_first_cluster,
+            first_cluster: self.cur_dir.files[1].first_cluster,
             length: 0,
         });
         // 加入“.”
@@ -564,7 +564,11 @@ impl DiskManager {
     }
 
     /// 通过FCB块删除文件，参数中含有FCB块在dir中的序号。
-    fn delete_file_by_fcb_with_index(&mut self, fcb: &Fcb, index: Option<usize>) -> Result<(), String> {
+    fn delete_file_by_fcb_with_index(
+        &mut self,
+        fcb: &Fcb,
+        index: Option<usize>,
+    ) -> Result<(), String> {
         if let FileType::Directory = fcb.file_type {
             let dir = self.get_directory_by_fcb(fcb);
             if dir.files.len() > 2 {
@@ -572,7 +576,10 @@ impl DiskManager {
             }
         }
         pdebug();
-        println!("Trying to set all NotUsed clutster of file '{}' on FAT...", fcb.name);
+        println!(
+            "Trying to set all NotUsed clutster of file '{}' on FAT...",
+            fcb.name
+        );
         // 直接返回删除文件的结果
         if let Err(err) = self.delete_space_on_fat(fcb.first_cluster) {
             return Err(err);
@@ -615,7 +622,7 @@ impl DiskManager {
         println!("Trying to delete file in dir file list...");
         let fcb = self.cur_dir.files.remove(index);
         let res = self.delete_file_by_fcb_with_index(&fcb, None);
-        
+
         if res.is_err() {
             self.cur_dir.files.push(fcb);
         }
@@ -630,7 +637,6 @@ impl DiskManager {
         self.save_directory_to_disk(&dir_cloned);
         // 通过名字获取下一个文件夹
         let (_index, dir_fcb) = self.cur_dir.get_fcb_by_name(name).unwrap();
-        self.cur_dir_first_cluster = dir_fcb.first_cluster;
 
         let dir = self.get_directory_by_fcb(dir_fcb);
         self.cur_dir = dir;
@@ -643,7 +649,7 @@ impl DiskManager {
         let data = bincode::serialize(dir).unwrap();
         let (insert_eof, clusters_needed) = DiskManager::calc_clusters_needed_with_eof(data.len());
         let reallocated_clusters =
-            self.reallocate_free_space_on_fat(self.cur_dir_first_cluster, clusters_needed);
+            self.reallocate_free_space_on_fat(self.cur_dir.files[1].first_cluster, clusters_needed);
         self.disk.write_data_by_clusters_with_eof(
             data.as_slice(),
             reallocated_clusters.as_slice(),
