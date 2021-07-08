@@ -71,21 +71,20 @@ fn main() {
         let command_line = String::from(buf_str.trim());
 
         // 分支-test
-        if command_line.starts_with("test ") {
-            let command_line = String::from((&command_line[5..]).trim());
+        if let Some(command_line) = command_line.strip_prefix("test") {
+            let command_line = command_line.trim().to_string();
             if command_line.starts_with("create") {
                 let data = format!("File has been created at {:?} .", SystemTime::now());
                 let name = if command_line.len() > 6 {
                     // 输入了名字
-                    String::from((&command_line[6..]).trim())
+                    command_line.strip_prefix("create").unwrap().trim().to_string()
                 } else {
                     // 没有输入名字
-                    format!("test-{}", (rand::random::<f32>() * 100 as f32) as usize)
+                    format!("test-{}", (rand::random::<f32>() * 100_f32) as usize)
                 };
                 virtual_disk.create_file_with_data(name.as_str(), data.as_bytes());
             }
-        } else {
-            if command_line.starts_with("help") {
+        } else if command_line.starts_with("help") {
                 // 显示菜单
                 println!("{}", UI_HELP);
             } else if command_line.starts_with("exit") {
@@ -104,23 +103,33 @@ fn main() {
             } else if command_line.starts_with("ls") {
                 // 列出目录文件
                 println!("{}", virtual_disk.cur_dir);
-            } else if command_line.starts_with("cd ") {
+            } else if let Some(name) = command_line.strip_prefix("cd ") {
                 // 切换到当前目录的某个文件夹
-                let name = &command_line[3..];
                 pinfo();
                 println!("Set Location to: {} ...", name);
                 virtual_disk.set_current_directory(name);
-            } else if command_line.starts_with("cat ") {
+            } else if let Some(command_line) = command_line.strip_prefix("cat ") {
                 // 显示文件内容
-                let name = (&command_line[4..]).trim();
+                let name = command_line.trim();
                 let data = virtual_disk.read_file_by_name(name);
                 println!("{}", str::from_utf8(data.as_slice()).unwrap());
-            } else if command_line.starts_with("mkdir ") {
+            } else if let Some(command_line) = command_line.strip_prefix("mkdir ") {
                 // 创建新文件夹
-                let name = (&command_line[6..]).trim();
+                let name = command_line.trim();
                 virtual_disk.new_directory_to_disk(name).unwrap();
+            } else if command_line.starts_with("diskinfo") {
+                // 返回磁盘信息
+                let (disk_size, num_used, num_not_used) = virtual_disk.get_disk_info();
+                println!(
+                    "Disk sized {} Bytes, {} Bytes used, {} Bytes available.",
+                    disk_size,
+                    num_used * BLOCK_SIZE,
+                    num_not_used * BLOCK_SIZE
+                );
+            } else if let Some(command_line) = command_line.strip_prefix("rm ") {
+                let name = command_line.trim();
+                virtual_disk.delete_file_by_name(name).expect("[ERROR]\tDELETE FILE FAILED!");
             }
-        }
     }
 
     // virtual_disk.new_directory_to_disk("test").unwrap();
@@ -158,8 +167,8 @@ use std::{
 const BLOCK_SIZE: usize = 1024; // 簇大小：1KiB
 const BLOCK_COUNT: usize = 1000; // 簇数量
 const EOF_BYTE: u8 = 254; // 定义从后向前扫描时的EoF
-const SAVE_FILE_NAME: &'static str = "file-sys.vd"; // 默认保存的文件名
-const UI_HELP: &'static str = "\
+const SAVE_FILE_NAME: &str = "file-sys.vd"; // 默认保存的文件名
+const UI_HELP: &str = "\
 \n==================================================\
 \n           IvanD's Basic File System\
 \n==================================================\
@@ -168,6 +177,8 @@ const UI_HELP: &'static str = "\
 \n\tmkdir <dir name>: Create a new dir.\
 \n\tls : List all files and dir in current dir.\
 \n\tcat <filename>: Show the file content.\
+\n\trm <filename>: Delete a file on disk.\
+\n\tdiskinfo : Show some info about disk.\
 \n\tsave : Save this virtual disk to file 'file-sys.vd'\
 \n\texit : Exit the system. 
 \n\
@@ -180,7 +191,6 @@ const UI_HELP: &'static str = "\
 \n\tfn delete_file_by_name(&mut self, name: &str)\
 \n\tfn delete_file_by_name(&mut self, name: &str)\
 \n\tfn read_file_by_name(&self, name: &str) -> Vec<u8>\
-\n
 \n"; // UI主菜单
 
 fn pinfo() {
@@ -547,20 +557,30 @@ impl DiskManager {
 
     /// 通过FCB块删除文件
     fn delete_file_by_fcb(&mut self, fcb: &Fcb) -> Result<(), String> {
+        self.delete_file_by_fcb_with_index(
+            fcb,
+            Some(self.cur_dir.get_index_by_name(fcb.name.as_str()).unwrap()),
+        )
+    }
+
+    /// 通过FCB块删除文件，参数中含有FCB块在dir中的序号。
+    fn delete_file_by_fcb_with_index(&mut self, fcb: &Fcb, index: Option<usize>) -> Result<(), String> {
         if let FileType::Directory = fcb.file_type {
             let dir = self.get_directory_by_fcb(fcb);
             if dir.files.len() > 2 {
                 return Err(String::from("[ERROR]\tThe Directory is not empty!"));
             }
         }
+        pdebug();
+        println!("Trying to set all NotUsed clutster of file '{}' on FAT...", fcb.name);
         // 直接返回删除文件的结果
         if let Err(err) = self.delete_space_on_fat(fcb.first_cluster) {
             return Err(err);
         }
-        // 删除目录下的FCB条目
-        self.cur_dir
-            .files
-            .remove(self.cur_dir.get_index_by_fcb(&fcb).unwrap());
+        // 若给定index非None，则删除目录下的FCB条目
+        if let Some(i) = index {
+            self.cur_dir.files.remove(i);
+        }
 
         Ok(())
     }
@@ -588,11 +608,19 @@ impl DiskManager {
     }
 
     /// 通过文件名删除文件
-    fn delete_file_by_name(&mut self, name: &str) {
-        let (_index, fcb) = self.cur_dir.get_fcb_by_name(name).unwrap();
-        // 创建fcb副本
-        let fcb = fcb.clone();
-        self.delete_file_by_fcb(&fcb).unwrap();
+    fn delete_file_by_name(&mut self, name: &str) -> Result<(), String> {
+        let index = self.cur_dir.get_index_by_name(name).unwrap();
+        // 从dir中先删除fcb，如果删除失败再还回来
+        pdebug();
+        println!("Trying to delete file in dir file list...");
+        let fcb = self.cur_dir.files.remove(index);
+        let res = self.delete_file_by_fcb_with_index(&fcb, None);
+        
+        if res.is_err() {
+            self.cur_dir.files.push(fcb);
+        }
+
+        res
     }
 
     /// 通过文件夹名设置当前文件夹
@@ -626,13 +654,41 @@ impl DiskManager {
     }
 
     /// 文件改名，没啥好说的。
-    fn rename_file(&mut self, old: &str, new: &str) {
+    fn rename_file_by_name(&mut self, old: &str, new: &str) {
         let (index, fcb) = self.cur_dir.get_fcb_by_name(old).unwrap();
         let new_fcb = Fcb {
             name: String::from(new),
             ..fcb.to_owned()
         };
         self.cur_dir.files[index] = new_fcb;
+    }
+
+    /// 获取部分磁盘信息
+    /// 返回 磁盘总大小/Byte，已分配簇数量、未分配簇的数量
+    fn get_disk_info(&self) -> (usize, usize, usize) {
+        let disk_size = BLOCK_SIZE * BLOCK_COUNT;
+        let mut num_used = 0usize;
+        let mut num_not_used = 0usize;
+
+        for fat_item in &self.disk.fat {
+            match fat_item {
+                FatItem::ClusterNo(_no) => num_used += 1,
+                FatItem::EoF => num_used += 1,
+                FatItem::NotUsed => num_not_used += 1,
+                _ => (),
+            }
+        }
+
+        (disk_size, num_used, num_not_used)
+    }
+
+    /// FCB的移动
+    fn move_fcb_between_dirs_by_name(&mut self, name: &str, des_dir: &mut Directory) {
+        let fcb = self
+            .cur_dir
+            .files
+            .remove(self.cur_dir.get_index_by_name(name).unwrap());
+        des_dir.files.push(fcb);
     }
 }
 
@@ -685,10 +741,10 @@ impl Directory {
     }
 
     /// 通过文件名获取文件在files中的索引和文件FCB
-    fn get_index_by_fcb(&self, fcb: &Fcb) -> Option<usize> {
+    fn get_index_by_name(&self, name: &str) -> Option<usize> {
         let mut res = None;
         for i in 0..self.files.len() {
-            if self.files[i].name.as_str() == fcb.name.as_str() {
+            if self.files[i].name.as_str() == name {
                 res = Some(i);
                 break;
             }
@@ -701,11 +757,11 @@ impl fmt::Display for Directory {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         // 仅将 self 的第一个元素写入到给定的输出流 `f`。返回 `fmt:Result`，此
         // 结果表明操作成功或失败。注意 `write!` 的用法和 `println!` 很相似。
-        write!(f, "Directroy {} Files:\n", self.name)?;
+        writeln!(f, "Directroy {} Files:", self.name)?;
         for file in &self.files {
-            write!(
+            writeln!(
                 f,
-                "{}\t\t{}\t\tLength: {}\n",
+                "{}\t\t{}\t\tLength: {}",
                 file.name, file.file_type, file.length
             )?;
         }
