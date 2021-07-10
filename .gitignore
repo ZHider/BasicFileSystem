@@ -1,4 +1,5 @@
 /target
 file-sys.vd
 /.vscode
+/.VSCodeCounter
 Cargo.lock
