@@ -197,7 +197,7 @@ Directroy 'root' Files:
 
 这是一个单用户多级目录文件系统，以下将用一个简单的例子说明这几个之前提到的对象的关系。
 
-![SystemIllustration]("https://github.com/ZHider/BasicFileSystem/blob/master/SystemIilustration.svg")
+![SystemIllustration](https://github.com/ZHider/BasicFileSystem/blob/master/SystemIilustration.svg)
 
 如图，说明了一个目录下有一个文件的目录在根目录下的情况。FAT表和硬盘簇号一一对应。根目录在第0簇，他的前两个FCB（应指向父级和自身的默认目录项）都指向第0簇，而后读出了他自己的数据——根目录文件。根目录下有一个指向另一个目录的FCB块，指向第1簇，读出第一簇数据后能够得到第二个目录对象。这个目录的第一个FCB指向第0簇，能够得到根目录对象，第二个FCB指向第2簇，能够得到这个目录对象本身。第三个FCB指向第3簇，通过FAT表跳转，得到了一个指向File的完整的以第3、5、6、7簇的数据的集合为内容的文件。
 
